@@ -1,0 +1,251 @@
+@import "tailwindcss";
+@import "./markdown.css";
+@import url('https://fonts.googleapis.com/css2?family=Berkshire+Swash&display=swap');
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme {
+  /* Vibrant tech-inspired gradient background with rich colors */
+  --background-image-main-view:
+    radial-gradient(ellipse at 15% 15%, rgba(59, 130, 246, 0.15) 0%, transparent 40%),
+    radial-gradient(ellipse at 85% 20%, rgba(147, 51, 234, 0.12) 0%, transparent 45%),
+    radial-gradient(ellipse at 20% 85%, rgba(16, 185, 129, 0.10) 0%, transparent 40%),
+    radial-gradient(ellipse at 80% 80%, rgba(96, 165, 250, 0.08) 0%, transparent 50%),
+    linear-gradient(135deg, #0a0e17 0%, #0d1117 30%, #050810 60%, #0a0e17 100%);
+  --background-image-main-view-header: rgba(255, 255, 255, 0.05);
+  --background-image-main-view-footer: rgba(0, 0, 0, 0.3);
+
+  --background-image-icon-bg-common: rgba(255, 255, 255, 0.08);
+  --background-image-icon-bg-voice-open: rgba(59, 130, 246, 0.3);
+
+
+  --shadow-tool-hover: 0 0 20px rgba(59, 130, 246, 0.3);
+  --color-bg-tool-hover: rgba(59, 130, 246, 0.15);
+  --color-border-tool-hover: rgba(255, 255, 255, 0.2);
+
+
+  --color-border-view-window-edge: rgba(255, 255, 255, 0.1);
+  --color-icon-bg-hangup: #991B1B;
+  --color-view-window-edge: rgba(255, 255, 255, 0.9);
+  --color-main-view-hover: rgba(0, 0, 0, 0.7);
+
+  --my-font: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* Background colors - Fellou.ai inspired glass morphism */
+  /* Header */
+  --background-image-header: rgba(255, 255, 255, 0.03);
+  /* Message */
+  --background-image-message: rgba(255, 255, 255, 0.05);
+  /* Atlas AI assistant */
+  --background-image-atlas: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(147, 51, 234, 0.1) 100%);
+  /* Task execution button background */
+  --background-image-ask-status: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  /* Deep thinking */
+  --background-color-thinking: rgba(255, 255, 255, 0.04);
+  /* Steps */
+  --background-color-step: #3B82F6;
+  /* Tool call background */
+  --background-color-tool-call: rgba(255, 255, 255, 0.03);
+
+
+  /* Border colors - Glass morphism style */
+  --color-border-message: rgba(255, 255, 255, 0.1);
+
+
+  /* Text colors (Light theme) */
+  /* Primary text */
+  --color-text-01: #131C30;
+  /* Secondary text */
+  --color-text-02-01: #2A354E;
+  /* Tertiary text */
+  --color-text-03: #545E71;
+  /* Quaternary text */
+  --color-text-04: #A9B2BE;
+  /* Theme color */
+  --color-text-05: #3B82F6;
+  /* Special colors */
+  --color-text-06: #EF4444;
+  --color-text-07: #F97316;
+  --color-text-08: #F59E0B;
+  --color-text-09: #10B981;
+  --color-text-10: #DC2626;
+  --color-text-11: #2A354E;
+  --color-text-12: #EF4444;
+  --color-text-13: #10B981;
+
+  /* Text colors (Dark theme) - Fellou.ai inspired */
+  /* Primary text */
+  --color-text-01-dark: rgba(255, 255, 255, 0.95);
+  /* Secondary text */
+  --color-text-02-01-dark: rgba(255, 255, 255, 0.9);
+  --color-text-02-02-dark: rgba(255, 217, 147, 0.9);
+  /* Tertiary text */
+  --color-text-03-dark: rgba(255, 255, 255, 0.7);
+  /* Quaternary text */
+  --color-text-04-dark: rgba(255, 255, 255, 0.5);
+  /* Theme color - blue accent */
+  --color-text-05-dark: #60A5FA;
+  /* Special colors */
+  --color-text-06-dark: #F87171;
+  --color-text-07-dark: #FB923C;
+  --color-text-08-dark: #FBBF24;
+  --color-text-09-dark: #34D399;
+  --color-text-10-dark: #EF4444;
+  --color-text-11-dark: rgba(255, 255, 255, 0.9);
+  --color-text-12-dark: rgba(255, 255, 255, 0.6);
+
+
+
+}
+
+.gradient-border {
+  position: relative;
+  display: inline-block;
+  padding: 2px; /* Border width */
+  border-radius: 12px;
+  /* Fellou.ai purple gradient border - subtle */
+  background: linear-gradient(135deg, rgba(94, 49, 216, 0.3), rgba(145, 75, 241, 0.2), rgba(94, 49, 216, 0.3));
+  backdrop-filter: blur(12px);
+  transition: all 0.3s ease;
+}
+
+/* Remove the container-level focus effect - we'll handle it at textarea level */
+.gradient-border textarea {
+  border: none;
+  outline: none;
+  border-radius: 12px;
+  font-size: 14px;
+  resize: none !important;
+  transition: all 0.3s ease;
+}
+
+/* Add focus effect directly to textarea with a glowing border */
+.gradient-border textarea:focus {
+  box-shadow: 0 0 0 2px rgba(145, 75, 241, 0.4) inset;
+}
+
+/* Ant Design Select dropdown customization - Fellou.ai purple theme */
+/* Dropdown container styling */
+.ant-select-dropdown {
+  background: rgba(8, 12, 16, 0.96) !important;
+  backdrop-filter: blur(20px) !important;
+  border: 1px solid rgba(145, 75, 241, 0.3) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(145, 75, 241, 0.2) !important;
+}
+
+/* Dropdown items styling */
+.ant-select-item {
+  color: rgba(255, 255, 255, 0.9) !important;
+  border-radius: 8px !important;
+  margin: 2px 4px !important;
+  transition: all 0.2s ease !important;
+}
+
+/* Hover state for dropdown items */
+.ant-select-item-option-active:not(.ant-select-item-option-selected) {
+  background: rgba(94, 49, 216, 0.15) !important;
+}
+
+/* Selected state */
+.ant-select-item-option-selected {
+  background: rgba(94, 49, 216, 0.25) !important;
+  font-weight: 500 !important;
+}
+
+/* Selected state hover */
+.ant-select-item-option-selected.ant-select-item-option-active {
+  background: rgba(94, 49, 216, 0.35) !important;
+}
+
+/* Select box focus state */
+.custom-select.ant-select-focused .ant-select-selector {
+  border-color: rgba(145, 75, 241, 0.4) !important;
+  box-shadow: 0 0 0 2px rgba(145, 75, 241, 0.15) !important;
+}
+
+/* Select box hover state */
+.custom-select:not(.ant-select-disabled):hover .ant-select-selector {
+  border-color: rgba(145, 75, 241, 0.3) !important;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+html,
+body,
+#__next {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  /* Subtle tech-inspired background with minimal distraction */
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(59, 130, 246, 0.03) 0%, transparent 50%),
+    radial-gradient(ellipse at 0% 100%, rgba(59, 130, 246, 0.02) 0%, transparent 40%),
+    radial-gradient(ellipse at 100% 100%, rgba(96, 165, 250, 0.02) 0%, transparent 40%),
+    #000000;
+  background-color: #000000;
+  background-attachment: fixed;
+}
+
+/* Scrollbar track */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  display: none;
+}
+
+::-webkit-scrollbar-track {
+  border-radius: 6px;
+  /* background: rgba(255, 255, 255, 0.5); */
+}
+
+/* Scrollbar thumb */
+::-webkit-scrollbar-thumb {
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.01);
+  -webkit-box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.2);
+}
+
+/* Scrollbar corner */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* History playback message fade-in animation */
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Apply fade-in animation to messages during playback */
+.playback-message-enter {
+  animation: messageSlideIn 0.4s ease-out;
+}

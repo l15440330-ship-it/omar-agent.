@@ -1,0 +1,447 @@
+import { Eko, SimpleSseMcpClient, type LLMs, type StreamCallbackMessage, type AgentContext } from "@jarvis-agent/core";
+import { BrowserAgent, FileAgent } from "@jarvis-agent/electron";
+import type { EkoResult } from "@jarvis-agent/core/types";
+import { BrowserWindow, WebContentsView, app } from "electron";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { ConfigManager } from "../utils/config-manager";
+import type { HumanRequestMessage, HumanResponseMessage, HumanInteractionContext } from "../../../src/models/human-interaction";
+
+export class EkoService {
+  private eko: Eko | null = null;
+  private mainWindow: BrowserWindow;
+  private detailView: WebContentsView;
+  private mcpClient!: SimpleSseMcpClient;
+  private agents!: any[];
+
+  // Store pending human interaction requests
+  private pendingHumanRequests = new Map<string, {
+    resolve: (value: any) => void;
+    reject: (reason?: any) => void;
+  }>();
+
+  // Map toolId to requestId for human interactions
+  private toolIdToRequestId = new Map<string, string>();
+
+  // Store current human_interact toolId
+  private currentHumanInteractToolId: string | null = null;
+
+  constructor(mainWindow: BrowserWindow, detailView: WebContentsView) {
+    this.mainWindow = mainWindow;
+    this.detailView = detailView;
+    this.initializeEko();
+  }
+
+  /**
+   * Create stream callback handler
+   */
+  private createCallback() {
+    return {
+      onMessage: (message: StreamCallbackMessage): Promise<void> => {
+        if (!this.mainWindow || this.mainWindow.isDestroyed()) {
+          return Promise.resolve();
+        }
+
+        if (message.type === 'tool_use' && message.toolName === 'human_interact' && message.toolId) {
+          this.currentHumanInteractToolId = message.toolId;
+        }
+
+        return new Promise((resolve) => {
+          this.mainWindow.webContents.send('eko-stream-message', message);
+
+          if (message.type === 'tool_streaming' && message.toolName === 'file_write') {
+            let args;
+            try {
+              args = JSON.parse(message.paramsText);
+            } catch {
+              try {
+                args = JSON.parse(`${message.paramsText}\"}`);
+              } catch {
+                resolve();
+                return;
+              }
+            }
+
+            if (args?.content) {
+              const url = this.detailView.webContents.getURL();
+              if (!url.includes('file-view')) {
+                this.detailView.webContents.loadURL(`http://localhost:5173/file-view`);
+                this.detailView.webContents.once('did-finish-load', () => {
+                  this.detailView.webContents.send('file-updated', 'code', args.content);
+                  resolve();
+                });
+              } else {
+                this.detailView.webContents.send('file-updated', 'code', args.content);
+                resolve();
+              }
+            } else {
+              resolve();
+            }
+          } else {
+            resolve();
+          }
+        });
+      },
+
+      // Human interaction callbacks
+      onHumanConfirm: async (agentContext: AgentContext, prompt: string): Promise<boolean> => {
+        const result = await this.requestHumanInteraction(agentContext, {
+          interactType: 'confirm',
+          prompt
+        });
+        return Boolean(result);
+      },
+
+      onHumanInput: async (agentContext: AgentContext, prompt: string): Promise<string> => {
+        const result = await this.requestHumanInteraction(agentContext, {
+          interactType: 'input',
+          prompt
+        });
+        return String(result ?? '');
+      },
+
+      onHumanSelect: async (
+        agentContext: AgentContext,
+        prompt: string,
+        options: string[],
+        multiple: boolean
+      ): Promise<string[]> => {
+        const result = await this.requestHumanInteraction(agentContext, {
+          interactType: 'select',
+          prompt,
+          selectOptions: options,
+          selectMultiple: multiple
+        });
+        return Array.isArray(result) ? result : [];
+      },
+
+      onHumanHelp: async (
+        agentContext: AgentContext,
+        helpType: 'request_login' | 'request_assistance',
+        prompt: string
+      ): Promise<boolean> => {
+        let context: HumanInteractionContext | undefined;
+        try {
+          const url = this.detailView.webContents.getURL();
+          if (url?.startsWith('http')) {
+            context = {
+              siteName: new URL(url).hostname,
+              actionUrl: url
+            };
+          }
+        } catch {}
+
+        const result = await this.requestHumanInteraction(agentContext, {
+          interactType: 'request_help',
+          prompt,
+          helpType,
+          context
+        });
+        return Boolean(result);
+      }
+    };
+  }
+
+  private initializeEko() {
+    const configManager = ConfigManager.getInstance();
+    const llms: LLMs = configManager.getLLMsConfig();
+    const agentConfig = configManager.getAgentConfig();
+
+    const appPath = app.isPackaged
+      ? path.join(app.getPath('userData'), 'static')
+      : path.join(process.cwd(), 'public', 'static');
+
+    this.mcpClient = new SimpleSseMcpClient("http://localhost:5173/api/mcp/sse");
+    this.agents = [];
+
+    if (agentConfig.browserAgent.enabled) {
+      this.agents.push(
+        new BrowserAgent(this.detailView, this.mcpClient, agentConfig.browserAgent.customPrompt)
+      );
+    }
+
+    if (agentConfig.fileAgent.enabled) {
+      this.agents.push(
+        new FileAgent(this.detailView, appPath, this.mcpClient, agentConfig.fileAgent.customPrompt)
+      );
+    }
+
+    this.eko = new Eko({ llms, agents: this.agents, callback: this.createCallback() });
+  }
+
+  /**
+   * Reload LLM configuration and reinitialize Eko instance
+   */
+  public reloadConfig(): void {
+    if (this.eko) {
+      this.eko.getAllTaskId().forEach((taskId: any) => {
+        try {
+          this.eko!.abortTask(taskId, 'config-reload');
+        } catch (error) {
+          console.error(`[EkoService] Failed to abort task ${taskId}:`, error);
+        }
+      });
+    }
+
+    this.rejectAllHumanRequests(new Error('EkoService configuration reloaded'));
+
+    const configManager = ConfigManager.getInstance();
+    const llms: LLMs = configManager.getLLMsConfig();
+
+    this.eko = new Eko({ llms, agents: this.agents, callback: this.createCallback() });
+
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send('eko-config-reloaded', {
+        model: llms.default?.model,
+        provider: llms.default?.provider
+      });
+    }
+  }
+
+  async run(message: string): Promise<EkoResult | null> {
+    if (!this.eko) {
+      console.error('[EkoService] Eko service not initialized');
+      this.sendErrorToFrontend('Eko service not initialized');
+      return null;
+    }
+
+    try {
+      return await this.eko.run(message);
+    } catch (error: any) {
+      console.error('[EkoService] Run error:', error);
+      this.sendErrorToFrontend(error?.message || 'Unknown error occurred', error);
+      return null;
+    }
+  }
+
+  async modify(taskId: string, message: string): Promise<EkoResult | null> {
+    if (!this.eko) {
+      console.error('[EkoService] Eko service not initialized');
+      this.sendErrorToFrontend('Eko service not initialized', undefined, taskId);
+      return null;
+    }
+
+    try {
+      await this.eko.modify(taskId, message);
+      return await this.eko.execute(taskId);
+    } catch (error: any) {
+      console.error('[EkoService] Modify error:', error);
+      this.sendErrorToFrontend(error?.message || 'Failed to modify task', error, taskId);
+      return null;
+    }
+  }
+
+  async execute(taskId: string): Promise<EkoResult | null> {
+    if (!this.eko) {
+      console.error('[EkoService] Eko service not initialized');
+      this.sendErrorToFrontend('Eko service not initialized', undefined, taskId);
+      return null;
+    }
+
+    try {
+      return await this.eko.execute(taskId);
+    } catch (error: any) {
+      console.error('[EkoService] Execute error:', error);
+      this.sendErrorToFrontend(error?.message || 'Failed to execute task', error, taskId);
+      return null;
+    }
+  }
+
+  async cancleTask(taskId: string): Promise<any> {
+    if (!this.eko) {
+      console.error('[EkoService] Eko service not initialized');
+      return { success: false, error: 'Service not initialized' };
+    }
+
+    try {
+      const result = await this.eko.abortTask(taskId, 'cancle');
+      return { success: result };
+    } catch (error: any) {
+      console.error('[EkoService] Failed to cancel task:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  private sendErrorToFrontend(errorMessage: string, error?: any, taskId?: string): void {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+      this.mainWindow.webContents.send('eko-stream-message', {
+        type: 'error',
+        error: errorMessage,
+        detail: error?.stack || error?.toString() || errorMessage,
+        taskId
+      });
+    }
+  }
+
+  /**
+   * Check if any task is running
+   */
+  hasRunningTask(): boolean {
+    if (!this.eko) {
+      return false;
+    }
+
+    const allTaskIds = this.eko.getAllTaskId();
+
+    // Iterate through all tasks, check if any task is not terminated
+    for (const taskId of allTaskIds) {
+      const context = this.eko.getTask(taskId);
+      if (context && !context.controller.signal.aborted) {
+        // Task exists and not terminated, meaning it may be running
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  getTaskContext(taskId: string): {
+    workflow: any;
+    contextParams: Record<string, any>;
+    chainPlanRequest?: any;
+    chainPlanResult?: string;
+  } | null {
+    if (!this.eko) return null;
+
+    const context = this.eko.getTask(taskId);
+    if (!context) return null;
+
+    const contextParams: Record<string, any> = {};
+    context.variables.forEach((value, key) => {
+      contextParams[key] = value;
+    });
+
+    return {
+      workflow: context.workflow,
+      contextParams,
+      chainPlanRequest: context.chain?.planRequest,
+      chainPlanResult: context.chain?.planResult
+    };
+  }
+
+  async restoreTask(
+    workflow: any,
+    contextParams?: Record<string, any>,
+    chainPlanRequest?: any,
+    chainPlanResult?: string
+  ): Promise<string | null> {
+    if (!this.eko) {
+      console.error('[EkoService] Eko service not initialized');
+      return null;
+    }
+
+    try {
+      const context = await this.eko.initContext(workflow, contextParams);
+
+      if (chainPlanRequest && chainPlanResult) {
+        context.chain.planRequest = chainPlanRequest;
+        context.chain.planResult = chainPlanResult;
+      }
+
+      return workflow.taskId;
+    } catch (error: any) {
+      console.error('[EkoService] Failed to restore task:', error);
+      return null;
+    }
+  }
+
+  async abortAllTasks(): Promise<void> {
+    if (!this.eko) return;
+
+    const abortPromises = this.eko.getAllTaskId().map((taskId: any) =>
+      this.eko!.abortTask(taskId, 'window-closing')
+    );
+
+    await Promise.all(abortPromises);
+    this.rejectAllHumanRequests(new Error('All tasks aborted'));
+  }
+
+  private requestHumanInteraction(
+    agentContext: AgentContext,
+    payload: Omit<HumanRequestMessage, 'type' | 'requestId' | 'timestamp'>
+  ): Promise<any> {
+    const requestId = randomUUID();
+    const message: HumanRequestMessage = {
+      type: 'human_interaction',
+      requestId,
+      taskId: agentContext?.context?.taskId,
+      agentName: agentContext?.agent?.Name,
+      timestamp: new Date(),
+      ...payload
+    };
+
+    return new Promise((resolve, reject) => {
+      this.pendingHumanRequests.set(requestId, { resolve, reject });
+
+      if (this.currentHumanInteractToolId) {
+        this.toolIdToRequestId.set(this.currentHumanInteractToolId, requestId);
+        this.currentHumanInteractToolId = null;
+      }
+
+      agentContext?.context?.controller?.signal?.addEventListener('abort', () => {
+        this.pendingHumanRequests.delete(requestId);
+        reject(new Error('Task aborted during human interaction'));
+      });
+
+      if (!this.mainWindow || this.mainWindow.isDestroyed()) {
+        this.pendingHumanRequests.delete(requestId);
+        reject(new Error('Main window destroyed'));
+        return;
+      }
+
+      this.mainWindow.webContents.send('eko-stream-message', message);
+    });
+  }
+
+  public handleHumanResponse(response: HumanResponseMessage): boolean {
+    let pending = this.pendingHumanRequests.get(response.requestId);
+    let actualRequestId = response.requestId;
+
+    if (!pending) {
+      const mappedRequestId = this.toolIdToRequestId.get(response.requestId);
+      if (mappedRequestId) {
+        pending = this.pendingHumanRequests.get(mappedRequestId);
+        actualRequestId = mappedRequestId;
+      }
+    }
+
+    if (!pending) return false;
+
+    this.pendingHumanRequests.delete(actualRequestId);
+    this.toolIdToRequestId.delete(response.requestId);
+
+    if (response.success) {
+      pending.resolve(response.result);
+
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        this.mainWindow.webContents.send('eko-stream-message', {
+          type: 'human_interaction_result',
+          requestId: response.requestId,
+          result: response.result,
+          timestamp: new Date()
+        });
+      }
+    } else {
+      pending.reject(new Error(response.error || 'Human interaction cancelled'));
+    }
+
+    return true;
+  }
+
+  private rejectAllHumanRequests(error: Error): void {
+    if (this.pendingHumanRequests.size === 0) return;
+
+    for (const pending of this.pendingHumanRequests.values()) {
+      pending.reject(error);
+    }
+
+    this.pendingHumanRequests.clear();
+    this.toolIdToRequestId.clear();
+    this.currentHumanInteractToolId = null;
+  }
+
+  destroy() {
+    this.rejectAllHumanRequests(new Error('EkoService destroyed'));
+    this.eko = null;
+  }
+}

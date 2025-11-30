@@ -1,0 +1,231 @@
+import { useState, useCallback, useRef } from 'react';
+import { Task, DisplayMessage } from '@/models';
+import { taskStorage } from '@/services/task-storage';
+
+interface UseTaskManagerReturn {
+  tasks: Task[];
+  currentTask: Task | undefined;
+  messages: DisplayMessage[];
+  currentTaskId: string;
+  isHistoryMode: boolean;
+
+  // Task operations
+  setCurrentTaskId: (taskId: string) => void;
+  updateTask: (taskId: string, updates: Partial<Task>, forceUpdate?: boolean) => void;
+  createTask: (taskId: string, initialData: Partial<Task>) => void;
+  updateMessages: (taskId: string, messages: DisplayMessage[]) => void;
+  addToolHistory: (taskId: string, toolData: any) => void;
+  replaceTaskId: (oldTaskId: string, newTaskId: string) => void;
+
+  // History mode
+  enterHistoryMode: (task: Task) => void;
+  exitHistoryMode: () => void;
+
+  // Reset
+  reset: () => void;
+}
+
+export const useTaskManager = (): UseTaskManagerReturn => {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [currentTaskId, setCurrentTaskId] = useState<string>('');
+  const [isHistoryMode, setIsHistoryMode] = useState<boolean>(false);
+
+  // Debounce timers for each task
+  const saveTaskTimers = useRef<Map<string, NodeJS.Timeout>>(new Map());
+
+  // Computed properties
+  const currentTask = tasks.find(task => task.id === currentTaskId);
+  const messages = currentTask?.messages || [];
+
+  // Save task with debounce optimization
+  const saveTask = useCallback(async (task: Task, immediate = false) => {
+    try {
+      if (immediate) {
+        // Immediate save (when task ends)
+        const timer = saveTaskTimers.current.get(task.id);
+        if (timer) {
+          clearTimeout(timer);
+          saveTaskTimers.current.delete(task.id);
+        }
+        await taskStorage.saveTask(task);
+        return;
+      }
+
+      // Debounced save (during task execution)
+      const existingTimer = saveTaskTimers.current.get(task.id);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+      }
+
+      const timer = setTimeout(async () => {
+        await taskStorage.saveTask(task);
+        saveTaskTimers.current.delete(task.id);
+      }, 300); // 300ms debounce
+
+      saveTaskTimers.current.set(task.id, timer);
+    } catch (error) {
+      console.error('Failed to save task:', error);
+    }
+  }, []);
+
+  // Update task
+  const updateTask = useCallback((taskId: string, updates: Partial<Task>, forceUpdate = false) => {
+    if (!taskId) return;
+    // Skip update in history mode unless forceUpdate is true
+    if (isHistoryMode && !forceUpdate) return;
+
+    setTasks(prevTasks => {
+      const existingTaskIndex = prevTasks.findIndex(task => task.id === taskId);
+      if (existingTaskIndex >= 0) {
+        const updatedTasks = [...prevTasks];
+        const updatedTask = {
+          ...updatedTasks[existingTaskIndex],
+          ...updates,
+          updatedAt: new Date()
+        };
+        updatedTasks[existingTaskIndex] = updatedTask;
+
+        // Check if task has ended (status changed to done/error/abort)
+        const isTaskEnded = updates.status && ['done', 'error', 'abort'].includes(updates.status);
+
+        // Save immediately if task ended, otherwise use debounce
+        saveTask(updatedTask, isTaskEnded);
+
+        return updatedTasks;
+      }
+      return prevTasks;
+    });
+  }, [isHistoryMode, saveTask]);
+
+  // Create new task
+  const createTask = useCallback((taskId: string, initialData: Partial<Task>) => {
+    if (isHistoryMode) return;
+
+    const newTask: Task = {
+      id: taskId,
+      name: `Task ${taskId.slice(0, 8)}`,
+      messages: [],
+      taskType: 'normal', // Default to normal task
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...initialData
+    };
+
+    setTasks(prevTasks => {
+      // Check if already exists
+      const exists = prevTasks.some(task => task.id === taskId);
+      if (exists) return prevTasks;
+
+      // Asynchronous save
+      saveTask(newTask);
+
+      return [...prevTasks, newTask];
+    });
+  }, [isHistoryMode, saveTask]);
+
+  // Update messages
+  const updateMessages = useCallback((taskId: string, messages: DisplayMessage[]) => {
+    updateTask(taskId, { messages });
+  }, [updateTask]);
+
+  // Add tool history
+  const addToolHistory = useCallback((taskId: string, toolData: any) => {
+    setTasks(prevTasks => {
+      const existingTaskIndex = prevTasks.findIndex(task => task.id === taskId);
+      if (existingTaskIndex >= 0) {
+        const updatedTasks = [...prevTasks];
+        const currentToolHistory = updatedTasks[existingTaskIndex].toolHistory || [];
+        const updatedTask = {
+          ...updatedTasks[existingTaskIndex],
+          toolHistory: [...currentToolHistory, toolData],
+          updatedAt: new Date()
+        };
+        updatedTasks[existingTaskIndex] = updatedTask;
+
+        // Asynchronous save
+        saveTask(updatedTask);
+
+        return updatedTasks;
+      }
+      return prevTasks;
+    });
+  }, [saveTask]);
+
+  // Replace task ID (for temporary task -> real task transition)
+  const replaceTaskId = useCallback((oldTaskId: string, newTaskId: string) => {
+    if (isHistoryMode) return;
+
+    setTasks(prevTasks => {
+      const existingTaskIndex = prevTasks.findIndex(task => task.id === oldTaskId);
+      if (existingTaskIndex >= 0) {
+        const updatedTasks = [...prevTasks];
+        // Create new task object with new ID, keep all other data
+        const newTask = {
+          ...updatedTasks[existingTaskIndex],
+          id: newTaskId,
+          updatedAt: new Date()
+        };
+
+        // Replace old task with new task
+        updatedTasks[existingTaskIndex] = newTask;
+
+        // Save new task to IndexedDB
+        saveTask(newTask);
+
+        // Delete old temporary task from IndexedDB
+        taskStorage.deleteTask(oldTaskId).catch(error => {
+          console.error('Failed to delete temporary task:', error);
+        });
+
+        return updatedTasks;
+      }
+      return prevTasks;
+    });
+
+    // Update currentTaskId if it matches the old ID
+    if (currentTaskId === oldTaskId) {
+      setCurrentTaskId(newTaskId);
+    }
+  }, [isHistoryMode, saveTask, currentTaskId]);
+
+  // Enter history mode
+  const enterHistoryMode = useCallback((task: Task) => {
+    setIsHistoryMode(true);
+    setCurrentTaskId(task.id);
+    setTasks([task]);
+  }, []);
+
+  // Exit history mode
+  const exitHistoryMode = useCallback(() => {
+    setIsHistoryMode(false);
+    // Note: Don't clear tasks and currentTaskId when exiting history mode
+    // They will be set by the caller (e.g., handleContinueConversation)
+  }, []);
+
+  // Reset all state
+  const reset = useCallback(() => {
+    setTasks([]);
+    setCurrentTaskId('');
+    setIsHistoryMode(false);
+  }, []);
+
+  return {
+    tasks,
+    currentTask,
+    messages,
+    currentTaskId,
+    isHistoryMode,
+
+    setCurrentTaskId,
+    updateTask,
+    createTask,
+    updateMessages,
+    addToolHistory,
+    replaceTaskId,
+
+    enterHistoryMode,
+    exitHistoryMode,
+
+    reset
+  };
+};
