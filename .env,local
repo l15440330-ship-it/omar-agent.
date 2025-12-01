@@ -1,0 +1,48 @@
+﻿# ========================================
+# Omar Agent - API Configuration
+# ========================================
+# 
+# Instructions:
+# 1. Choose ONE AI provider below
+# 2. Get an API key from the provider's website
+# 3. Paste it after the = sign (remove the # to uncomment)
+# 4. Save this file
+# 5. Restart the application
+#
+# ========================================
+
+# Option 1: DeepSeek (RECOMMENDED - FREE with large quota)
+# Get key from: https://platform.deepseek.com/api_keys
+#DEEPSEEK_API_KEY=sk-45836d9ec1944ab29f78982cb716d2d3
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+
+# Option 2: Qwen/Alibaba Cloud (FREE)
+# Get key from: https://bailian.console.aliyun.com/
+#QWEN_API_KEY=your-key-here
+
+# Option 3: Google Gemini (FREE with limits)
+# Get key from: https://aistudio.google.com/app/apikey
+#GOOGLE_API_KEY=AIzaSyDqbxsJ96SWizMHb_9tOUWM9QIiR0PkWzg
+
+# Option 4: Anthropic Claude (PAID)
+# Get key from: https://console.anthropic.com/settings/keys
+#ANTHROPIC_API_KEY=your-key-here
+
+# Option 5: OpenRouter (FREE tier available)
+# Get key from: https://openrouter.ai/keys
+#OPENROUTER_API_KEY=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
+
+# ========================================
+# Optional Settings
+# ========================================
+
+# Text-to-Speech (optional)
+TTS_REGION=eastasia
+TTS_KEY=
+
+# Screenshot quality (0.1 to 1.0)
+EKO_SCREENSHOT_SCALE=0.5
+
+# Development mode
+NEXT_PUBLIC_APP_ENV=development
+ELECTRON_IS_DEV=true

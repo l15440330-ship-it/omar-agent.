@@ -6,8 +6,8 @@ interface HealthCheckOptions {
 
 export class HealthChecker {
   private readonly defaultOptions: Required<HealthCheckOptions> = {
-    maxRetries: 30,
-    retryInterval: 1000,
+    maxRetries: 60,  // Increased from 30 to allow more time for Next.js compilation
+    retryInterval: 2000,  // Increased from 1000ms to 2000ms
     timeout: 5000,
   };
 
